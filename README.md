@@ -10,6 +10,6 @@ Python client for iLightSln Zigbee gateways
   lights['Kitchen Light'].turn_on()  # access lights by name
   for light in lights.lights:  # or iterate
     light.turn_off()
-  lights['Kitchen Light'].set_brightness(20)  # 0..100
+  lights['Kitchen Light'].set_brightness(20)  # 1..100
   lights['Kitchen Light'].set_color_temp(20)  # 0..100  
 ```
