@@ -3,6 +3,7 @@ Python client for iLightSln Zigbee gateways
 
 # Usage
 ```python
+  from ilightsln.ilightsln import ILightSln
   lights = ILightSln(host='192.168.1.121')
   lights.add_lights_from_gateway()  # automatically receive lights
   lights.add_light('Kitchen Light', address=0xe24b)  # or add manually
