@@ -1,7 +1,8 @@
 # iLightSln
-Python client for iLightSln Zigbee gateways
+Python 3.6 client for iLightSln Zigbee gateways.
+Provides blocking and non-blocking asyncio interface.
 
-# Usage
+# Usage: Blocking interface
 ```python
   from ilightsln.ilightsln import ILightSln
   lights = ILightSln(host='192.168.1.121')
@@ -13,3 +14,13 @@ Python client for iLightSln Zigbee gateways
   lights['Kitchen Light'].set_brightness(20)  # 1..100
   lights['Kitchen Light'].set_color_temp(20)  # 0..100  
 ```
+
+# Usage: Non-blocking interface
+```python
+  from ilightsln.ilightsln import ILightSln
+  loop = asyncio.get_event_loop()
+  lights = ILightSln(host='192.168.1.121', loop=loop)
+  asyncio.ensure_future(lights.async_add_lights_from_gateway())
+  loop.run_forever() 
+```
+    
