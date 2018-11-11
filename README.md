@@ -1,6 +1,6 @@
 # iLightSln
 A Python 3.6 client for iLightSln Zigbee gateways.
-Provides blocking and non-blocking asyncio interface.
+Provides blocking interface and non-blocking asyncio interface.
 
 # Supported gateways
 A compatible ILightSln gateway should shows a Wifi SSID during setup containing "iLightsln".
