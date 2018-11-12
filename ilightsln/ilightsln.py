@@ -10,7 +10,7 @@ class Light(object):
     # Std. light settings during init
     __STD_BRIGHTNESS = 100
     __STD_COLOR_TEMP = 100
-    __STD_ON = False
+    __STD_ON = True
     __STD_AVAILABLE = True
 
     def __init__(self, name, address, gateway):
@@ -95,9 +95,9 @@ class Light(object):
             self.brightness = 100
 
         if self.is_on():
-            if self._intf._send_light_command(self.address,
-                                              brightness=brightness,
-                                              color_temp=self.color_temp):
+            if self._gateway._send_light_command(self.address,
+                                                 brightness=brightness,
+                                                 color_temp=self.color_temp):
                 self.brightness = brightness
                 self.available = True
             else:
@@ -144,9 +144,9 @@ class Light(object):
             color_temp = 100
 
         if self.is_on():
-            if self._intf._send_light_command(self.address,
-                                              brightness=self.brightness,
-                                              color_temp=color_temp):
+            if self._gateway._send_light_command(self.address,
+                                                 brightness=self.brightness,
+                                                 color_temp=color_temp):
                 self.color_temp = color_temp
                 self.available = True
             else:
@@ -174,7 +174,7 @@ class Light(object):
                     self.available = True
                 else:
                     self.available = False
-                
+
             self._gateway._async_send_light_command(self.address,
                                                     brightness=self.brightness,
                                                     color_temp=color_temp)
@@ -241,8 +241,8 @@ class ILightSln(object):
     _RCV_HEADER = 0x08  # likely header for received light commands ack
 
     _CONST_1 = 0x11
-    _CONST_2 = 0x00
-    _CONST_3 = 0x00
+    _CONST_2 = 0x00  # can be any value; no function change observed
+    _CONST_3 = 0x00  # can be any value; no function change observed
 
     _ACK_WAIT = 1  # time to wait for reply from bridge after command send
     _HEARTBEAT_DLY = 2  # delay between heartbeets in seconds
@@ -263,12 +263,12 @@ class ILightSln(object):
         asyncio.ensure_future(self._async_send_from_queue())
         if check_connection:
             asyncio.ensure_future(self._heart_beat())
-        
+
         self.connected = asyncio.Event()
 
         # Values in DEZ
         self.seq_num = 0
-        
+
     def _set_connected(self, connected):
         if connected != self.connected.is_set():
             if not connected:
@@ -279,7 +279,7 @@ class ILightSln(object):
                 self.connected.set()
             # Lights are available if gateway is connected
             self._set_lights_available(available=self.connected.is_set())
-        
+
     async def _heart_beat(self):
         async def callback(data):
             if not data:  # data is None for no reply in time
@@ -287,16 +287,16 @@ class ILightSln(object):
             else:
                 self._set_connected(True)
         dev_addr = 0xFFFF  # use address that is likely never used
-        
+
         while True:
             cmd = [self._SND_HEADER, (dev_addr & 0xFF00) >> 8, dev_addr & 0x00FF,
-                self.seq_num, self._CONST_1, 0, 0, self._CONST_2, self._CONST_3]
+                   self.seq_num, self._CONST_1, 0, 0, self._CONST_2, self._CONST_3]
             await self._async_send_command(cmd, callback)
             await asyncio.sleep(self._HEARTBEAT_DLY)
-        
+
     def _set_lights_available(self, available=True):
         ''' Set lights availibility
-        
+
             Light are not available if gateway is not
             connected.
         '''
@@ -444,7 +444,7 @@ class ILightSln(object):
 
     async def _async_send_from_queue(self):
         """ Send messages to the gateway as they become available.
-        
+
             Checks the return value of the gateway and calls the callback
         """
         while True:
@@ -470,17 +470,23 @@ class ILightSln(object):
 
 if __name__ == '__main__':
     logging.basicConfig()
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
     loop = asyncio.get_event_loop()
     lights = ILightSln(host='192.168.1.121', loop=loop)
-    asyncio.ensure_future(lights.async_add_lights_from_gateway())
-    async def toggle():
-        while True:
-            await asyncio.sleep(10)
-            for light in lights.lights:
-                await light.async_turn_off()
-            await asyncio.sleep(10)
-            for light in lights.lights:
-                await light.async_turn_on()
-    asyncio.ensure_future(toggle())
-    loop.run_forever()
+    #lights.add_lights_from_gateway()
+    lights.add_light('living', 0xe23c)
+    #lights['aichtundwasauch'].turn_on()
+    lights['living'].turn_off()
+    #lights['living'].set_brightness(60)
+#     print(lights['living'].available)
+#     asyncio.ensure_future(lights.async_add_lights_from_gateway())
+#     async def toggle():
+#         while True:
+#             await asyncio.sleep(10)
+#             for light in lights.lights:
+#                 await light.async_turn_off()
+#             await asyncio.sleep(10)
+#             for light in lights.lights:
+#                 await light.async_turn_on()
+#     asyncio.ensure_future(toggle())
+#     loop.run_forever()
