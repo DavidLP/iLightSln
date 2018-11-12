@@ -15,8 +15,8 @@ A compatible gateway will likely tell you to install one of the following Androi
 
 # Usage: Blocking interface
 ```python
-  from ilightsln.ilightsln import ILightSln
-  lights = ILightSln(host='192.168.1.121')
+  from ilightsln import ilightsln
+  lights = ilightsln.ILightSln(host='192.168.1.121')
   lights.add_lights_from_gateway()  # automatically receive lights
   lights.add_light('Kitchen Light', address=0xe24b)  # or add manually
   lights['Kitchen Light'].turn_on()  # access lights by name
@@ -28,9 +28,9 @@ A compatible gateway will likely tell you to install one of the following Androi
 
 # Usage: Non-blocking interface
 ```python
-  from ilightsln.ilightsln import ILightSln
+  from ilightsln import ilightsln
   loop = asyncio.get_event_loop()
-  lights = ILightSln(host='192.168.1.121', loop=loop)
+  lights = ilightsln.ILightSln(host='192.168.1.121', loop=loop)
   asyncio.ensure_future(lights.async_add_lights_from_gateway())
   loop.run_forever() 
 ```
