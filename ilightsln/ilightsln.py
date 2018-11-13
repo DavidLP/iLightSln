@@ -3,7 +3,7 @@ import binascii
 import logging
 import asyncio
 
-logger = logging.getLogger('ilightsln')
+logger = logging.getLogger(__name__)
 
 
 class Light(object):
@@ -244,7 +244,7 @@ class ILightSln(object):
     _CONST_2 = 0x00  # can be any value; no function change observed
     _CONST_3 = 0x00  # can be any value; no function change observed
 
-    _ACK_WAIT = 1  # time to wait for reply from bridge after command send
+    _ACK_WAIT = 0.5  # time to wait for reply from bridge after command send
     _HEARTBEAT_DLY = 2  # delay between heartbeets in seconds
 
     def __init__(self, host, port=50000, loop=None, check_connection=True):
@@ -291,7 +291,7 @@ class ILightSln(object):
         while True:
             cmd = [self._SND_HEADER, (dev_addr & 0xFF00) >> 8, dev_addr & 0x00FF,
                    self.seq_num, self._CONST_1, 0, 0, self._CONST_2, self._CONST_3]
-            await self._async_send_command(cmd, callback)
+            self._async_send_command(cmd, callback)
             await asyncio.sleep(self._HEARTBEAT_DLY)
 
     def _set_lights_available(self, available=True):
@@ -346,7 +346,7 @@ class ILightSln(object):
             self._set_lights_available()
 
         cmd = '017d017a00'  # get cfg from gateway cmd
-        await self._async_send_command(bytearray.fromhex(cmd), parse_reply)
+        self._async_send_command(bytearray.fromhex(cmd), parse_reply)
 
     def add_light(self, name, address):
         ''' Add a new light '''
@@ -398,7 +398,10 @@ class ILightSln(object):
     async def _async_send_light_command(self, dev_addr, brightness, color_temp, ack_callback=None):
         data = [self._SND_HEADER, (dev_addr & 0xFF00) >> 8, dev_addr & 0x00FF,
                 self.seq_num, self._CONST_1, brightness, color_temp, self._CONST_2, self._CONST_3]
-        await self._async_send_command(data, ack_callback)
+        if self.connected.is_set():
+            self._async_send_command(data, ack_callback)
+        else:  # Return immediatly when gateway not connected
+            await ack_callback(None)
 
     def _send_command(self, cmd):
         ''' Blocking send command
@@ -434,13 +437,13 @@ class ILightSln(object):
             # only returen header is not a function of the cfgdata itself
             return bytearray([self._RCV_CFG_HEADER])
 
-    async def _async_send_command(self, cmd, ack_callback):
+    def _async_send_command(self, cmd, ack_callback):
         ''' Non blocking send command
 
             Acknowledge callback is called when command is correctly
             replied by gateway within given timeout
         '''
-        await self._send_cmd_queue.put((cmd, ack_callback))
+        self._send_cmd_queue.put_nowait((cmd, ack_callback))
 
     async def _async_send_from_queue(self):
         """ Send messages to the gateway as they become available.
@@ -474,9 +477,9 @@ if __name__ == '__main__':
     loop = asyncio.get_event_loop()
     lights = ILightSln(host='192.168.1.121', loop=loop)
     #lights.add_lights_from_gateway()
-    lights.add_light('living', 0xe23c)
+    #lights.add_light('living', 0xe23c)
     #lights['aichtundwasauch'].turn_on()
-    lights['living'].turn_off()
+    #lights['living'].turn_off()
     #lights['living'].set_brightness(60)
 #     print(lights['living'].available)
 #     asyncio.ensure_future(lights.async_add_lights_from_gateway())
@@ -489,4 +492,11 @@ if __name__ == '__main__':
 #             for light in lights.lights:
 #                 await light.async_turn_on()
 #     asyncio.ensure_future(toggle())
-#     loop.run_forever()
+
+    async def destroy():
+        await asyncio.sleep(2)
+        loop.stop()
+#         while True:
+
+    asyncio.ensure_future(destroy())
+    loop.run_forever()
