@@ -3,7 +3,7 @@ import binascii
 import logging
 import asyncio
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('ilightsln')
 
 
 class Light(object):
@@ -37,20 +37,26 @@ class Light(object):
             self.available = False
 
     async def async_turn_on(self):
-        '''  Non blocking async light turn on function'''
+        '''  Async light turn on function'''
+        done = asyncio.Event()
+
         async def ack_callback(data):
             if data:
-                logger.debug('Got acknowledge %s', binascii.hexlify(data))
+                logger.debug('Got turn on acknowledge %s', binascii.hexlify(data))
                 self.on = True
                 self.available = True
             else:
+                logger.warning('Failed turn on light %s', self.name)
                 self.available = False
-        # Brightness != 0 means light on
+            done.set()
+
+        # Command with brightness != 0 means light on
         logger.debug('Async turn on light %s', self.name)
-        await self._gateway._async_send_light_command(self.address,
-                                                      brightness=self.brightness,
-                                                      color_temp=self.color_temp,
-                                                      ack_callback=ack_callback)
+        self._gateway._async_send_light_command(self.address,
+                                                brightness=self.brightness,
+                                                color_temp=self.color_temp,
+                                                ack_callback=ack_callback)
+        await done.wait()
 
     def turn_off(self):
         # Brightness = 0 means turn off
@@ -64,23 +70,25 @@ class Light(object):
 
     async def async_turn_off(self):
         '''  Non blocking async light turn off function'''
+        done = asyncio.Event()
+
         async def ack_callback(data):
             if data:
-                logger.debug('Got acknowledge %s', binascii.hexlify(data))
+                logger.debug('Got turn off acknowledge %s', binascii.hexlify(data))
                 self.on = False
                 self.available = True
             else:
+                logger.warning('Failed turn off light %s', self.name)
                 self.available = False
+            done.set()
 
         # Brightness = 0 means turn off
         logger.debug('Async turn off light %s', self.name)
-        await self._gateway._async_send_light_command(self.address,
-                                                      brightness=0,
-                                                      color_temp=self.color_temp,
-                                                      ack_callback=ack_callback)
-
-    def is_on(self):
-        return self.on
+        self._gateway._async_send_light_command(self.address,
+                                                brightness=0,
+                                                color_temp=self.color_temp,
+                                                ack_callback=ack_callback)
+        await done.wait()
 
     def set_brightness(self, brightness):
         ''' Set brightness setting of light
@@ -88,13 +96,12 @@ class Light(object):
             Works also if light is off.
         '''
 
-        if brightness < 1:
-            self.brightness = 1
+        if brightness < self._gateway._MIN_BRIGHTNESS:
+            brightness = self._gateway._MIN_BRIGHTNESS
+        if brightness > self._gateway._MAX_BRIGHTNESS:
+            brightness = self._gateway._MAX_BRIGHTNESS
 
-        if brightness > 100:
-            self.brightness = 100
-
-        if self.is_on():
+        if self.on:
             if self._gateway._send_light_command(self.address,
                                                  brightness=brightness,
                                                  color_temp=self.color_temp):
@@ -111,13 +118,14 @@ class Light(object):
             Works also if light is off
         '''
 
-        if brightness < 1:
-            brightness = 1
+        if brightness < self._gateway._MIN_BRIGHTNESS:
+            brightness = self._gateway._MIN_BRIGHTNESS
+        if brightness > self._gateway._MAX_BRIGHTNESS:
+            brightness = self._gateway._MAX_BRIGHTNESS
 
-        if brightness > 100:
-            brightness = 100
+        if self.on:
+            done = asyncio.Event()
 
-        if self.is_on():
             async def ack_callback(data):  # only change brightness state on success
                 if data:
                     logger.debug('Got acknowledge %s', binascii.hexlify(data))
@@ -125,9 +133,12 @@ class Light(object):
                     self.available = True
                 else:
                     self.available = False
+                done.set()
+
             self._gateway._async_send_light_command(self.address,
                                                     brightness=brightness,
                                                     color_temp=self.color_temp)
+            await done.wait()
         else:
             self.brightness = brightness
 
@@ -137,13 +148,12 @@ class Light(object):
             Works also if light is off
         '''
 
-        if color_temp < 0:
-            color_temp = 0
+        if color_temp < self._gateway._MIN_COLOR_TEMP:
+            color_temp = self._gateway._MIN_COLOR_TEMP
+        if color_temp > self._gateway._MAX_COLOR_TEMP:
+            color_temp = self._gateway._MAX_COLOR_TEMP
 
-        if color_temp > 100:
-            color_temp = 100
-
-        if self.is_on():
+        if self.on:
             if self._gateway._send_light_command(self.address,
                                                  brightness=self.brightness,
                                                  color_temp=color_temp):
@@ -160,13 +170,14 @@ class Light(object):
             Works also if light is off
         '''
 
-        if color_temp < 0:
-            color_temp = 0
+        if color_temp < self._gateway._MIN_COLOR_TEMP:
+            color_temp = self._gateway._MIN_COLOR_TEMP
+        if color_temp > self._gateway._MAX_COLOR_TEMP:
+            color_temp = self._gateway._MAX_COLOR_TEMP
 
-        if color_temp > 100:
-            color_temp = 100
+        if self.on:
+            done = asyncio.Event()
 
-        if self.is_on():
             async def ack_callback(data):  # only change brightness state on success
                 if data:
                     logger.debug('Got acknowledge %s', binascii.hexlify(data))
@@ -174,15 +185,18 @@ class Light(object):
                     self.available = True
                 else:
                     self.available = False
+                done.set()
 
             self._gateway._async_send_light_command(self.address,
                                                     brightness=self.brightness,
                                                     color_temp=color_temp)
+            await done.wait()
         else:
             self.color_temp = color_temp
 
 
 class UdpProtocol(asyncio.DatagramProtocol):
+
     def __init__(self):
         self.queue = asyncio.Queue()
 
@@ -235,17 +249,26 @@ class ILightSln(object):
 
     '''
 
+    # Protocol constants
     _SND_CFG_HEADER = 0x01  # likely header for sending config commands
     _SND_HEADER = 0x04  # likely header for sending light commands
     _RCV_CFG_HEADER = 0x06  # likely header for received configuration data
     _RCV_HEADER = 0x08  # likely header for received light commands ack
 
-    _CONST_1 = 0x11
+    _CONST_1 = 0x11  # no ack when changed
     _CONST_2 = 0x00  # can be any value; no function change observed
     _CONST_3 = 0x00  # can be any value; no function change observed
 
-    _ACK_WAIT = 0.5  # time to wait for reply from bridge after command send
-    _HEARTBEAT_DLY = 2  # delay between heartbeets in seconds
+    # Delay values in seconds
+    _ACK_WAIT = 1  # time to wait for reply from bridge after command send
+    _DISCON_HEARTBEAT_DLY = 2  # delay between heartbeets when disconnected
+    _CON_HEARTBEAT_DLY = 30  # delay between heartbeets when connected
+
+    # Allowed value ranges
+    _MIN_BRIGHTNESS = 1
+    _MAX_BRIGHTNESS = 100  # including
+    _MIN_COLOR_TEMP = 0
+    _MAX_COLOR_TEMP = 100  # including
 
     def __init__(self, host, port=50000, loop=None, check_connection=True):
         self.host = host
@@ -254,20 +277,28 @@ class ILightSln(object):
 
         if not self.loop:
             self.loop = asyncio.get_event_loop()
-        task = asyncio.Task(self.loop.create_datagram_endpoint(
-            UdpProtocol, remote_addr=(self.host, self.port)))
-        self.intf, self.endpoint = self.loop.run_until_complete(task)
 
+        self._check_connection = check_connection
         self.lights = []  # light object
         self._send_cmd_queue = asyncio.Queue()
         asyncio.ensure_future(self._async_send_from_queue())
-        if check_connection:
-            asyncio.ensure_future(self._heart_beat())
 
         self.connected = asyncio.Event()
+        self.lights_initialized = asyncio.Event()
+
+        self._heart_beat_delay = self._DISCON_HEARTBEAT_DLY
 
         # Values in DEZ
         self.seq_num = 0
+
+    def create_connection(self):
+        self._check_connection = False
+        self.loop.run_until_complete(self.async_create_connection())
+
+    async def async_create_connection(self):
+        self.intf, self.endpoint = await self.loop.create_datagram_endpoint(UdpProtocol, remote_addr=(self.host, self.port))
+        if self._check_connection:
+            asyncio.ensure_future(self._heart_beat())
 
     def _set_connected(self, connected):
         if connected != self.connected.is_set():
@@ -281,18 +312,23 @@ class ILightSln(object):
             self._set_lights_available(available=self.connected.is_set())
 
     async def _heart_beat(self):
+
         async def callback(data):
             if not data:  # data is None for no reply in time
+                self._heart_beat_delay = self._DISCON_HEARTBEAT_DLY
                 self._set_connected(False)
             else:
+                self._heart_beat_delay = self._CON_HEARTBEAT_DLY
                 self._set_connected(True)
+
         dev_addr = 0xFFFF  # use address that is likely never used
 
         while True:
             cmd = [self._SND_HEADER, (dev_addr & 0xFF00) >> 8, dev_addr & 0x00FF,
                    self.seq_num, self._CONST_1, 0, 0, self._CONST_2, self._CONST_3]
+            logger.debug('Async send heart beat')
             self._async_send_command(cmd, callback)
-            await asyncio.sleep(self._HEARTBEAT_DLY)
+            await asyncio.sleep(self._heart_beat_delay)
 
     def _set_lights_available(self, available=True):
         ''' Set lights availibility
@@ -344,6 +380,7 @@ class ILightSln(object):
                 self.add_light(name, address)
             logger.info('Initialized %d light(s)', self.n_dev)
             self._set_lights_available()
+            self.lights_initialized.set()
 
         cmd = '017d017a00'  # get cfg from gateway cmd
         self._async_send_command(bytearray.fromhex(cmd), parse_reply)
@@ -363,6 +400,7 @@ class ILightSln(object):
                 logger.error(
                     'Cannot add another light with already used adress: %s', hex(address))
             else:
+                logger.info('Add light %s (%s)', name, hex(address))
                 self.lights.append(Light(name, address, gateway=self))
 
     def __getitem__(self, name):
@@ -395,13 +433,10 @@ class ILightSln(object):
                 self.seq_num, self._CONST_1, brightness, color_temp, self._CONST_2, self._CONST_3]
         return self._send_command(data)
 
-    async def _async_send_light_command(self, dev_addr, brightness, color_temp, ack_callback=None):
+    def _async_send_light_command(self, dev_addr, brightness, color_temp, ack_callback=None):
         data = [self._SND_HEADER, (dev_addr & 0xFF00) >> 8, dev_addr & 0x00FF,
                 self.seq_num, self._CONST_1, brightness, color_temp, self._CONST_2, self._CONST_3]
-        if self.connected.is_set():
-            self._async_send_command(data, ack_callback)
-        else:  # Return immediatly when gateway not connected
-            await ack_callback(None)
+        self._async_send_command(data, ack_callback)
 
     def _send_command(self, cmd):
         ''' Blocking send command
@@ -422,7 +457,7 @@ class ILightSln(object):
             if bytearray(ret).startswith(self._calc_acknowledge(payload)):
                 return ret
         except asyncio.TimeoutError:
-            logger.error('Payload %s not answered by bridge',
+            logger.error('Payload %s not answered by gateway',
                          binascii.hexlify(payload))
 
     def _calc_acknowledge(self, payload):
@@ -448,7 +483,11 @@ class ILightSln(object):
     async def _async_send_from_queue(self):
         """ Send messages to the gateway as they become available.
 
-            Checks the return value of the gateway and calls the callback
+            Checks the return value of the gateway and calls the callback.
+
+            Callback is called with received data if return value is expected.
+            Callback is always called after acknowledge time out with None argument
+            or if acknowledge is unexpected.
         """
         while True:
             cmd, callback = await self._send_cmd_queue.get()
@@ -462,12 +501,14 @@ class ILightSln(object):
                 ret = await asyncio.wait_for(self.endpoint.queue.get(), self._ACK_WAIT, loop=self.loop)
                 # callback for correct gateway reply
                 logger.debug('Async receive %s', binascii.hexlify(ret))
-                if callback and bytearray(ret).startswith(self._calc_acknowledge(payload)):
+                if bytearray(ret).startswith(self._calc_acknowledge(payload)):
                     await callback(ret)
+                else:
+                    await callback(None)
             except asyncio.TimeoutError:
                 if self.connected.is_set():
-                    logger.error('Payload %s not answered by bridge',
-                                 binascii.hexlify(payload))
+                    logger.warning('Payload %s not answered by bridge',
+                                   binascii.hexlify(payload))
                 await callback(None)
 
 
@@ -476,27 +517,37 @@ if __name__ == '__main__':
     logger.setLevel(logging.DEBUG)
     loop = asyncio.get_event_loop()
     lights = ILightSln(host='192.168.1.121', loop=loop)
-    #lights.add_lights_from_gateway()
-    #lights.add_light('living', 0xe23c)
-    #lights['aichtundwasauch'].turn_on()
-    #lights['living'].turn_off()
-    #lights['living'].set_brightness(60)
+    loop.run_until_complete(lights.async_create_connection())
+    #lights._HEARTBEAT_DLY = 10
+
+    # lights.add_lights_from_gateway()
+    lights.add_light('test', 0xe25a)
+
+    # lights['aichtundwasauch'].turn_on()
+    # lights['living'].turn_off()
+    # lights['living'].set_brightness(60)
 #     print(lights['living'].available)
 #     asyncio.ensure_future(lights.async_add_lights_from_gateway())
-#     async def toggle():
-#         while True:
-#             await asyncio.sleep(10)
-#             for light in lights.lights:
-#                 await light.async_turn_off()
-#             await asyncio.sleep(10)
-#             for light in lights.lights:
-#                 await light.async_turn_on()
-#     asyncio.ensure_future(toggle())
+    async def toggle():
+        while True:
+            await asyncio.sleep(5)
+            await lights['test'].async_turn_off()
+            await asyncio.sleep(5)
+            await lights['test'].async_turn_on()
 
-    async def destroy():
-        await asyncio.sleep(2)
-        loop.stop()
-#         while True:
+    asyncio.ensure_future(toggle())
 
-    asyncio.ensure_future(destroy())
+#     async def destroy():
+#         await asyncio.sleep(2)
+#         loop.stop()
+# #         while True:
+#
+#     asyncio.ensure_future(destroy())
     loop.run_forever()
+
+
+#     lights = ILightSln(host='192.168.1.121')
+#     lights.create_connection()
+#     lights.add_lights_from_gateway()
+#     for light in lights.lights:
+#         print(light.name)
