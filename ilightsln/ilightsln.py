@@ -491,7 +491,12 @@ class ILightSln(object):
         """
         while True:
             cmd, callback = await self._send_cmd_queue.get()
-            data = bytearray(cmd)
+            logger.debug('Async payload %s', str(cmd))
+            try:
+                data = bytearray(cmd)
+            except TypeError as e:
+                logger.debug('Async send error %s', str(cmd))
+                await callback(None)
             crc = bytearray([self._calculate_check_sum(data)])
             payload = data + crc
             self.intf.sendto(payload)
