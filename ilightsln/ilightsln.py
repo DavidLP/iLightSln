@@ -495,7 +495,7 @@ class ILightSln(object):
             try:
                 data = bytearray(cmd)
             except TypeError as e:
-                logger.debug('Async send error %s', str(cmd))
+                logger.error('Async send error %s', str(cmd))
                 await callback(None)
             crc = bytearray([self._calculate_check_sum(data)])
             payload = data + crc
